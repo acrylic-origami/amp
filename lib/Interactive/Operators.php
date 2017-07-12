@@ -143,6 +143,6 @@ trait Operators {
 	public static function never(): InteractiveProducer {
 		return self::create(new Producer(function($_) {
 			return (new Deferred)->promise();
-		}))
+		}));
 	}
 }

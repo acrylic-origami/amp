@@ -2,7 +2,8 @@
 
 namespace Amp;
 
-use Internal\Pointer;
+use Amp\Internal\Pointer;
+use Amp\Internal\Queue;
 
 final class InteractiveProducer implements Iterator {
     use CallableMaker, Internal\Producer, Interactive\Operators;
@@ -28,7 +29,10 @@ final class InteractiveProducer implements Iterator {
      * @throws \Error Thrown if the callable does not return a Generator.
      */
     protected function __construct(callable $producer) {
-        $this->queue = new Queue([null]);
+        $this->buffer = new Queue([null]);
+        $this->complete = new Pointer(null);
+        $this->waiting = new Pointer(null);
+        
         $this->running_count = new Pointer(0);
         $this->some_running = new Pointer(new Pointer(false));
         
@@ -39,9 +43,10 @@ final class InteractiveProducer implements Iterator {
         }
         
         $coroutines = [];
+        $emitter = $this->callableFromInstanceMethod("emit");
         foreach($iterators as $iterator) {
             if(!$iterator instanceof Iterator && !$iterator instanceof Generator)
-                throw createTypeError([Iterator::class, \Generator::class], $iterator);
+                throw Internal\createTypeError([Iterator::class, \Generator::class], $iterator);
             
             $this->iterators[] = $iterator;
             if($iterator instanceof Iterator)
@@ -50,7 +55,7 @@ final class InteractiveProducer implements Iterator {
         }
         $lifetime = Promise\all($coroutines);
         $lifetime->onResolve(function ($exception) {
-            if ($this->complete) {
+            if ($this->complete->value) {
                 return;
             }
 
@@ -76,7 +81,7 @@ final class InteractiveProducer implements Iterator {
         })();
     }
     
-    public static function create(): InteractiveProducer {
+    public static function create(Iterator $iterator): InteractiveProducer {
         return new self(function(callable $_) use ($iterator) {
             return [$iterator];
         });

@@ -26,6 +26,10 @@ try {
             private $fail;
 
             public function __construct() {
+                $this->buffer = new Queue([null]);
+                $this->complete = new Pointer(null);
+                $this->waiting = new Pointer(null);
+                
                 $this->iterator = new class($this->emit, $this->complete, $this->fail) implements Iterator {
                     use CallableMaker, Internal\Producer;
 

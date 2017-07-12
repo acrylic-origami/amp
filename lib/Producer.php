@@ -2,6 +2,9 @@
 
 namespace Amp;
 
+use Amp\Internal\Pointer;
+use Amp\Internal\Queue;
+
 final class Producer implements Iterator {
     use CallableMaker, Internal\Producer;
 
@@ -11,7 +14,9 @@ final class Producer implements Iterator {
      * @throws \Error Thrown if the callable does not return a Generator.
      */
     public function __construct(callable $producer) {
-        $this->queue = new Queue([null]);
+        $this->buffer = new Queue([null]);
+        $this->complete = new Pointer(null);
+        $this->waiting = new Pointer(null);
         
         $result = $producer($this->callableFromInstanceMethod("emit"));
 
@@ -21,7 +26,7 @@ final class Producer implements Iterator {
 
         $coroutine = new Coroutine($result);
         $coroutine->onResolve(function ($exception) {
-            if ($this->complete) {
+            if ($this->complete->value) {
                 return;
             }
 

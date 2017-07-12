@@ -3,6 +3,7 @@
 namespace Amp\Internal;
 
 use Amp\Deferred;
+use Amp\Coroutine;
 use Amp\Failure;
 use Amp\Promise;
 use Amp\Success;
@@ -17,7 +18,7 @@ use React\Promise\PromiseInterface as ReactPromise;
  * @internal
  */
 trait Producer {
-    /** @var \Amp\Promise|null */
+    /** @var Pointer<\Amp\Promise | null> */
     private $complete;
 
     /**
@@ -26,7 +27,7 @@ trait Producer {
     */
     private $buffer;
 
-    /** @var \Amp\Deferred|null */
+    /** @var Pointer<\Amp\Deferred | null> */
     private $waiting;
 
     /** @var null|array */
@@ -35,6 +36,12 @@ trait Producer {
     public function __clone() {
         $this->buffer = clone $this->buffer;
     }
+    
+    public function __construct() {
+        $this->buffer = new Queue([null]);
+        $this->complete = new Pointer(null);
+        $this->waiting = new Pointer(null);
+    }
 
     /**
      * {@inheritdoc}
@@ -42,19 +49,31 @@ trait Producer {
     public function advance(): Promise {
         if (!$this->buffer->is_empty()) {
             $buffer_item = $this->buffer->shift();
-            $buffer_item->backpressure->resolve();
+            if(!is_null($buffer_item) && !$buffer_item->resolved) {
+                // var_dump($buffer_item->value);
+                $buffer_item->resolved = true;
+                $buffer_item->backpressure->resolve();
+            }
         }
+        
         
         if(!$this->buffer->is_empty()) {
             return new Success(true);
         }
         
-        if ($this->complete) {
-            return $this->complete;
+        if ($this->complete->value) {
+            return $this->complete->value;
         }
         
-        $this->waiting = $this->waiting ?? new Deferred;
-        return $this->waiting->promise();
+        $this->waiting->value = $this->waiting->value ?? new Deferred;
+        $buffer = $this->buffer;
+        $waiting = $this->waiting;
+        $complete = $this->complete; // eradicate all references to `$this` from the generator
+        return new Coroutine((function() use ($buffer, $waiting, $complete) {
+            while(!$complete->value && $buffer->is_empty())
+                $result = yield $waiting->value->promise();
+            return $complete->value ?? $result;
+        })());
     }
 
     /**
@@ -62,13 +81,13 @@ trait Producer {
      */
     public function getCurrent() {
         if ($this->buffer->is_empty()) {
-            if($this->complete)
+            if($this->complete->value)
                 throw new \Error("The iterator has completed");
             else
                 throw new \Error("Promise returned from advance() must resolve before calling this method");
         }
 
-        return $this->buffer->shift();
+        return $this->buffer->peek()->value;
     }
 
     /**
@@ -82,7 +101,7 @@ trait Producer {
      * @throws \Error If the iterator has completed.
      */
     private function emit($value): Promise {
-        if ($this->complete) {
+        if ($this->complete->value) {
             throw new \Error("Iterators cannot emit values after calling complete");
         }
 
@@ -93,7 +112,7 @@ trait Producer {
         if ($value instanceof Promise) {
             $deferred = new Deferred;
             $value->onResolve(function ($e, $v) use ($deferred) {
-                if ($this->complete) {
+                if ($this->complete->value) {
                     $deferred->fail(
                         new \Error("The iterator was completed before the promise result could be emitted")
                     );
@@ -117,15 +136,16 @@ trait Producer {
             use \Amp\Struct;
             public $value;
             public $backpressure;
+            public $resolved = false;
             
             public function __construct($value, $backpressure) {
                 $this->value = $value; $this->backpressure = $backpressure;
             }
         });
 
-        if ($this->waiting !== null) {
-            $waiting = $this->waiting;
-            $this->waiting = null;
+        if ($this->waiting->value !== null) {
+            $waiting = $this->waiting->value;
+            $this->waiting->value = null;
             $waiting->resolve(true);
         }
 
@@ -138,7 +158,7 @@ trait Producer {
      * @throws \Error If the iterator has already been completed.
      */
     private function complete() {
-        if ($this->complete) {
+        if ($this->complete->value) {
             $message = "Iterator has already been completed";
 
             if (isset($this->resolutionTrace)) {
@@ -165,22 +185,22 @@ trait Producer {
             return true;
         })());
 
-        $this->complete = new Success(false);
+        $this->complete->value = new Success(false);
 
-        if ($this->waiting !== null) {
-            $waiting = $this->waiting;
-            $this->waiting = null;
-            $waiting->resolve($this->complete);
+        if ($this->waiting->value !== null) {
+            $waiting = $this->waiting->value;
+            $this->waiting->value = null;
+            $waiting->resolve($this->complete->value);
         }
     }
 
     private function fail(\Throwable $exception) {
-        $this->complete = new Failure($exception);
+        $this->complete->value = new Failure($exception);
 
-        if ($this->waiting !== null) {
-            $waiting = $this->waiting;
-            $this->waiting = null;
-            $waiting->resolve($this->complete);
+        if ($this->waiting->value !== null) {
+            $waiting = $this->waiting->value;
+            $this->waiting->value = null;
+            $waiting->resolve($this->complete->value);
         }
     }
 }
