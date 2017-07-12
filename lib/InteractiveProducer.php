@@ -5,7 +5,7 @@ namespace Amp;
 use Internal\Pointer;
 
 final class InteractiveProducer implements Iterator {
-    use CallableMaker, Internal\Producer;
+    use CallableMaker, Internal\Producer, Interactive\Operators;
 
     /**
      * @var Pointer<bool>
@@ -27,7 +27,7 @@ final class InteractiveProducer implements Iterator {
      *
      * @throws \Error Thrown if the callable does not return a Generator.
      */
-    public function __construct(callable $producer) {
+    protected function __construct(callable $producer) {
         $this->queue = new Queue([null]);
         $this->running_count = new Pointer(0);
         $this->some_running = new Pointer(new Pointer(false));
@@ -74,5 +74,11 @@ final class InteractiveProducer implements Iterator {
                     yield $emitter($iterator->getCurrent());
             }
         })();
+    }
+    
+    public static function create(): InteractiveProducer {
+        return new self(function(callable $_) use ($iterator) {
+            return [$iterator];
+        });
     }
 }
