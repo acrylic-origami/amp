@@ -32,30 +32,38 @@ trait Producer {
 
     /** @var null|array */
     private $resolutionTrace;
+    
+    /** @var Pointer<bool> */
+    private $running_count;
+    
+    /** @var bool */
+    private $this_running = false;
 
-    public function __clone() {
-        $this->buffer = clone $this->buffer;
-    }
     
     public function __construct() {
-        $this->buffer = new Queue([null]);
+        $this->buffer = new Queue();
         $this->complete = new Pointer(null);
         $this->waiting = new Pointer(null);
     }
-
+    public function __clone() {
+        $this->buffer = clone $this->buffer;
+    }
     /**
      * {@inheritdoc}
      */
     public function advance(): Promise {
-        if (!$this->buffer->is_empty()) {
+        if($this->this_running && !$this->buffer->is_empty()) {
             $buffer_item = $this->buffer->shift();
             if(!is_null($buffer_item) && !$buffer_item->resolved) {
-                // var_dump($buffer_item->value);
                 $buffer_item->resolved = true;
                 $buffer_item->backpressure->resolve();
             }
         }
         
+        if(!$this->this_running)
+            $this->running_count++;
+        
+        $this->this_running = true;
         
         if(!$this->buffer->is_empty()) {
             return new Success(true);

@@ -7,16 +7,6 @@ use Amp\Internal\Queue;
 
 final class InteractiveProducer implements Iterator {
     use CallableMaker, Internal\Producer, Interactive\Operators;
-
-    /**
-     * @var Pointer<bool>
-     */
-    protected $running_count;
-    
-    /**
-     * @var bool
-     */
-    protected $this_running = false;
     
     /**
      * @var Pointer<Pointer<bool>>
@@ -29,11 +19,11 @@ final class InteractiveProducer implements Iterator {
      * @throws \Error Thrown if the callable does not return a Generator.
      */
     protected function __construct(callable $producer) {
-        $this->buffer = new Queue([null]);
+        $this->buffer = new Queue();
         $this->complete = new Pointer(null);
         $this->waiting = new Pointer(null);
-        
         $this->running_count = new Pointer(0);
+        
         $this->some_running = new Pointer(new Pointer(false));
         
         $iterators = $producer($this->callableFromInstanceMethod("emit"));
@@ -66,6 +56,18 @@ final class InteractiveProducer implements Iterator {
 
             $this->complete();
         });
+    }
+    public function __destruct() {
+        $this->_detach();
+    }
+
+    protected function _detach() {
+        if($this->this_running) {
+            $this->running_count->value--;
+            if($this->running_count->value === 0) {
+                $this->some_running->value->value = false;
+            }
+        }
     }
     private function iterator_to_emitting_generator(Iterator $iterator, callable $emitter): \Generator {
         // `HHReactor\Producer::awaitify`'s Amp twin

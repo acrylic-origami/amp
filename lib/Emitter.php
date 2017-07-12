@@ -26,7 +26,7 @@ try {
             private $fail;
 
             public function __construct() {
-                $this->buffer = new Queue([null]);
+                $this->buffer = new Queue();
                 $this->complete = new Pointer(null);
                 $this->waiting = new Pointer(null);
                 

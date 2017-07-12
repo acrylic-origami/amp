@@ -14,7 +14,7 @@ final class Producer implements Iterator {
      * @throws \Error Thrown if the callable does not return a Generator.
      */
     public function __construct(callable $producer) {
-        $this->buffer = new Queue([null]);
+        $this->buffer = new Queue();
         $this->complete = new Pointer(null);
         $this->waiting = new Pointer(null);
         
