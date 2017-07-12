@@ -32,12 +32,6 @@
             "email": "me@kelunik.com"
         }
     ],
-    "config": {
-        "preferred-install": "dist",
-        "platform": {
-            "php": "7.0.0"
-        }
-    },
     "require": {
         "php": ">=7"
     },
