@@ -11,6 +11,8 @@ final class Producer implements Iterator {
      * @throws \Error Thrown if the callable does not return a Generator.
      */
     public function __construct(callable $producer) {
+        $this->queue = new Queue([null]);
+        
         $result = $producer($this->callableFromInstanceMethod("emit"));
 
         if (!$result instanceof \Generator) {

@@ -20,14 +20,11 @@ trait Producer {
     /** @var \Amp\Promise|null */
     private $complete;
 
-    /** @var mixed[] */
-    private $values = [];
-
-    /** @var \Amp\Deferred[] */
-    private $backPressure = [];
-
-    /** @var int */
-    private $position = -1;
+    /**
+    * Queue of values and backpressure promises
+    * @var Queue
+    */
+    private $buffer;
 
     /** @var \Amp\Deferred|null */
     private $waiting;
@@ -35,31 +32,28 @@ trait Producer {
     /** @var null|array */
     private $resolutionTrace;
 
+    public function __clone() {
+        $this->buffer = clone $this->buffer;
+    }
+
     /**
      * {@inheritdoc}
      */
     public function advance(): Promise {
-        if ($this->waiting !== null) {
-            throw new \Error("The prior promise returned must resolve before invoking this method again");
+        if (!$this->buffer->is_empty()) {
+            $buffer_item = $this->buffer->shift();
+            $buffer_item->backpressure->resolve();
         }
-
-        if (isset($this->backPressure[$this->position])) {
-            $future = $this->backPressure[$this->position];
-            unset($this->values[$this->position], $this->backPressure[$this->position]);
-            $future->resolve();
-        }
-
-        ++$this->position;
-
-        if (\array_key_exists($this->position, $this->values)) {
+        
+        if(!$this->buffer->is_empty()) {
             return new Success(true);
         }
-
+        
         if ($this->complete) {
             return $this->complete;
         }
-
-        $this->waiting = new Deferred;
+        
+        $this->waiting = $this->waiting ?? new Deferred;
         return $this->waiting->promise();
     }
 
@@ -67,15 +61,14 @@ trait Producer {
      * {@inheritdoc}
      */
     public function getCurrent() {
-        if (empty($this->values) && $this->complete) {
-            throw new \Error("The iterator has completed");
+        if ($this->buffer->is_empty()) {
+            if($this->complete)
+                throw new \Error("The iterator has completed");
+            else
+                throw new \Error("Promise returned from advance() must resolve before calling this method");
         }
 
-        if (!\array_key_exists($this->position, $this->values)) {
-            throw new \Error("Promise returned from advance() must resolve before calling this method");
-        }
-
-        return $this->values[$this->position];
+        return $this->buffer->shift();
     }
 
     /**
@@ -119,8 +112,16 @@ trait Producer {
             return $deferred->promise();
         }
 
-        $this->values[] = $value;
-        $this->backPressure[] = $pressure = new Deferred;
+        $pressure = new Deferred;
+        $this->buffer->add(new class($value, $pressure) {
+            use \Amp\Struct;
+            public $value;
+            public $backpressure;
+            
+            public function __construct($value, $backpressure) {
+                $this->value = $value; $this->backpressure = $backpressure;
+            }
+        });
 
         if ($this->waiting !== null) {
             $waiting = $this->waiting;
